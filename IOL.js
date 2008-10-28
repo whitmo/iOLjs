@@ -14,6 +14,26 @@ IOL.touch_events = ["touchstart",
                     "guestureend"
                    ];
 
+
+
+IOL.Handler.Pinch = OpenLayers.Class(OpenLayers.Handler, {
+
+    /* this seems like the right way to do it by example, but the
+     pattern feels like possibly unnecessary abstraction */
+
+    scale: 1,
+
+    touchend:IOL.__pinch_dispatch,
+
+    guestureend:function(evt){
+        alert("guesture: " + evt.scale);
+        return IOL.__pinch_dispatch(evt);
+    },
+
+    CLASS_NAME: "IOL.Handler.Pinch"
+});
+
+// pinch to guesture
 IOL.__pinch_dispatch = function(evt){
     evt.preventDefault();
     var args = [evt];
@@ -27,31 +47,54 @@ IOL.__pinch_dispatch = function(evt){
 
 
     if ( scale > 1 && scale != this.scale) {
-        this.callback('sweepIn', args);
+        this.callback('dilate', args);
     } else {
 	if (scale < 1 && scale != this.scale) {
-            this.callback('pinchOut', args);
+            this.callback('pinch', args);
 	}
     }
     this.scale = scale;
-}
+};
 
-IOL.Handler.Pinch = OpenLayers.Class(OpenLayers.Handler, {
+/* zoom callback
+                var out = "out";
+                if (zoom == null || zoom == out){
+                    obj.map.zoomIn();
+                    zoom = "in";
+                } else {
+                    obj.map.zoomOut();
+                    zoom = out;
+                }
+*/
 
-    /* this seems like the right way to do it by example, but the
-     pattern feels like possibly unnecessary abstraction */
+IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
+    timeout: 500,
 
-    scale: 1,
+    touchstart: function(evt){
+        evt.preventDefault();
+        var in_doubletap = false;
+        var doubletap_timer = false;
+        var timeout = this.timeout;
+        if(event.touches.length == 1) {
+            if(!doubleTapTimer){
+                doubletap_timer = setTimeout(function(){ in_doubletap = false;
+                                                        doubletap_timer = false; },
+                                                        timeout);
+                }
 
-    touchmove:IOL.__pinch_dispatch,
-
-    guesturechange:function(evt){
-        alert("guesture: " + evt.scale);
-        return IOL.__pinch_dispatch(evt);
+            // start here
+            if(!in_doubletap) {
+                in_doubletap = true;
+            }else{
+                in_doubletap = false;
+                var args = [evt];
+                this.callback('doubletap', args);
+            }
+        }
     },
-
-    CLASS_NAME: "IOL.Handler.PinchZoom"
-})
+    
+    CLASS_NAME: "IOL.Handler.DoubleTap"
+});
 
 IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
     /*
@@ -144,7 +187,7 @@ IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
 // but we will add PinchZoom
 
         if (this.pinchZoomEnabled){
-            var inandout = {sweepIn:this.sweepIn, pinchOut:this.pinchOut};
+            var inandout = {dilate:this.dilate, pinch:this.pinch};
             this.pinchZoom = new IOL.Handler.Pinch(this, inandout);
             this.pinchZoom.activate();
         }
@@ -153,11 +196,11 @@ IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
         this.activate();
     },
 
-    sweepIn:function (evt){
+    dilate:function (evt){
 	this.map.zoomIn();
     },
 
-    pinchOut:function (evt){
+    pinch:function (evt){
 	if (this.limitZoomOut() == false) {
 	    this.map.zoomOut();
 	}
