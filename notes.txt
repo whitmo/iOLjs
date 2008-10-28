@@ -1,1 +1,21 @@
 * webkit does not allow "in" as a key in an object
+
+tim shaub 10/23
+===============
+
+ * wheelChange (deltaz = scale)
+
+ * test -- test another way, jsdoctest
+        -- env.js
+
+-- touch for --
+
+1. sketch handlers
+2. draw feature
+3. feature control
+
+DrawFeature -> Handler: path, polygon, point
+DragFeature ->
+ModifyFeature (drag, scale, rotate) -> FeatureHandler 
+
+FSUMF
