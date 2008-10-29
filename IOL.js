@@ -1,100 +1,229 @@
-// set up namespaces
 (function(){
+     /*
+      * set up namespaces and do monkeypatches
+      */
+
      window.IOL = {};
      window.IOL.Control = {};
      window.IOL.Handler = {};
- })();
+     var touch_events = ["touchstart",
+                         "touchmove",
+                         "touchend",
+                         "touchcancel"];
+     var gesture_events = ["gesturechange",
+                           "gesturestart",
+                           "gestureend"];
 
-IOL.touch_events = ["touchstart",
-                    "touchmove",
-                    "touchend",
-                    "touchcancel",
-                    "guesturechange",
-                    "guesturestart",
-                    "guestureend"
-                   ];
+     var events = touch_events.concat(gesture_events);
 
+     /*
+      * Add events to OL
+      */
+     for(var i=0; i<events.length; i++){
+         OpenLayers.Events.prototype.BROWSER_EVENTS.push(events[i]);
+         OpenLayers.Map.prototype.EVENT_TYPES.push(events[i]);
+     }
 
+     /*
+      * Decorate getMousePosition
+      */
+     var getMousePosition = OpenLayers.Events.prototype.getMousePosition;
+     OpenLayers.Events.prototype._old_getMousePosition = getMousePosition;
+     OpenLayers.Events.prototype.getMousePosition = function (evt){
+         if (touch_events.indexOf(evt.type) > -1){
+             if(evt.touches.length == 1){
+                 evt.clientX = evt.touches[0].clientX;
+                 evt.clientY = evt.touches[0].clientY;
+             }
+         }
+         return this._old_getMousePosition(evt);
+     };
+
+     IOL.isinstance = function(instance, klass){
+         if(instance.CLASS_NAME==klass.prototype.CLASS_NAME) {
+             return true;
+         }
+         return false;
+     };
+})();
 
 IOL.Handler.Pinch = OpenLayers.Class(OpenLayers.Handler, {
-
-    /* this seems like the right way to do it by example, but the
-     pattern feels like possibly unnecessary abstraction */
+    /*
+     * A guesture where we only care about scale and center, but not
+     * rotation
+     *
+     * callbacks: 'dilate', 'pinch'
+     *
+     * args: event, final scale, scale change, center
+     */
 
     scale: 1,
+    center: null,
 
-    touchend:IOL.__pinch_dispatch,
+    touchmove: function(evt){
+        if(evt.touches.length == 2){
+            this.center = this._get_center(evt);
+        }
+    },
 
-    guestureend:function(evt){
-        alert("guesture: " + evt.scale);
-        return IOL.__pinch_dispatch(evt);
+    _get_center: function(evt){
+        var x = (evt.touches[0].clientX+evt.touches[1].clientX)/2;
+        var y = (evt.touches[0].clientY+evt.touches[1].clientY)/2;
+        return new OpenLayers.Pixel(x, y);
+    },
+
+    gesturestart:function(evt){
+        evt.preventDefault();
+        this.scale = evt.scale;
+    },
+
+    gestureend:function(evt){
+        evt.preventDefault();
+        var scale = evt.scale;
+        var dif = evt.scale - this.scale;
+        var args = [evt, scale, dif, this.center];
+
+        if ( scale > 1 && dif != 0) {
+            this.callback('dilate', args);
+        } else {
+            if (scale < 1 && dif != 0) {
+                this.callback('pinch', args);
+	    }
+        }
+        this.scale = scale;
     },
 
     CLASS_NAME: "IOL.Handler.Pinch"
 });
 
-// pinch to guesture
-IOL.__pinch_dispatch = function(evt){
-    evt.preventDefault();
-    var args = [evt];
-    var scale = evt.scale;
-    /*
-
-    // point halfway between two points
-    (x1+x2)/2, (y1+y2)/2
-
-    */
-
-
-    if ( scale > 1 && scale != this.scale) {
-        this.callback('dilate', args);
-    } else {
-	if (scale < 1 && scale != this.scale) {
-            this.callback('pinch', args);
-	}
-    }
-    this.scale = scale;
-};
-
-/* zoom callback
-                var out = "out";
-                if (zoom == null || zoom == out){
-                    obj.map.zoomIn();
-                    zoom = "in";
-                } else {
-                    obj.map.zoomOut();
-                    zoom = out;
-                }
-*/
-
 IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
+
     timeout: 500,
+
+    doubletap_timer:false,
+    in_doubletap:false,
 
     touchstart: function(evt){
         evt.preventDefault();
-        var in_doubletap = false;
-        var doubletap_timer = false;
+        //var in_doubletap = false;
+        //var doubletap_timer = false;
         var timeout = this.timeout;
         if(event.touches.length == 1) {
-            if(!doubleTapTimer){
-                doubletap_timer = setTimeout(function(){ in_doubletap = false;
-                                                        doubletap_timer = false; },
-                                                        timeout);
+            if(!this.doubletap_timer){
+                var obj = this;
+                function setTap(){
+                    this.in_doubletap = false;
+                    this.doubletap_timer = false;
                 }
+                this.doubletap_timer = setTimeout(setTap, timeout);
+            }
 
             // start here
-            if(!in_doubletap) {
-                in_doubletap = true;
-            }else{
-                in_doubletap = false;
+            if(!this.in_doubletap) {
+                this.in_doubletap = true;
+            } else {
+                this.in_doubletap = false;
                 var args = [evt];
                 this.callback('doubletap', args);
             }
         }
     },
-    
+
     CLASS_NAME: "IOL.Handler.DoubleTap"
 });
+
+IOL.Control.TouchZoom = OpenLayers.Class(OpenLayers.Control, {
+    /**
+     * A control for using the touch paradign to zoom on a map
+     */
+
+    doubleTapClass:IOL.Handler.DoubleTap,
+
+    pinchClass:IOL.Handler.Pinch,
+
+    doubleTapHandler:null,
+
+    pinchHandler:null,
+
+    zoom:"out",
+
+    // alter to just zoom in ala mobile google map
+
+    tapZoom: function(evt){
+        var out = "out";
+        if (this.zoom == null || this.zoom == out){
+            this.map.zoomIn();
+            this.zoom = "in";
+            } else {
+                this.map.zoomOut();
+            this.zoom = out;
+        }
+    },
+
+    initialize: function(options) {
+        this.handlers = [];
+        OpenLayers.Control.prototype.initialize.apply(this, arguments);
+    },
+
+    activate: function(){
+        for(var i=0; i<this.handlers.length; i++){
+            this.handlers[i].activate();
+        }
+        return OpenLayers.Control.prototype.activate.apply(this,arguments);
+    },
+
+    deactivate: function(){
+        for(var i=0; i<this.handlers.length; i++){
+            this.handlers[i].deactivate();
+        }
+        return OpenLayers.Control.prototype.deactivate.apply(this,arguments);
+    },
+
+    centerMap:function(lonlat){
+        if(IOL.isinstance(lonlat, OpenLayers.Pixel)){
+            lonlat = this.map.getLonLatFromPixel(lonlat);
+        }
+        this.map.setCenter(lonlat, this.map.getZoom());
+    },
+
+    dilateZoomIn: function(evt, scale, diff, center){
+        this.centerMap(center);
+	this.map.zoomIn();
+    },
+
+    pinchZoomOut: function(evt, scale, diff, center){
+	if (this.limitZoomOut() == false) {
+            this.centerMap(center);
+	    this.map.zoomOut();
+	}
+    },
+
+    draw: function(){
+        if(this.doubleTapClass != null){
+            this.doubleTapHandler =
+                new this.doubleTapClass(this, {doubletap: this.tapZoom});
+            this.handlers.push(this.doubleTapHandler);
+        }
+
+        if(this.pinchClass != null){
+            this.pinchHandler =
+                new this.pinchClass(this, {dilate:this.dilateZoomIn, pinch:this.pinchZoomOut});
+            this.handlers.push(this.pinchHandler);
+        }
+    },
+
+    limitZoomOut: function(){
+        // from whatamap, not sure of function
+        if ( this.map.getZoom() <= 2 ) {
+            return true;
+        }
+        return false;
+    },
+
+    CLASS_NAME: "IOL.Control.TouchZoom"
+
+});
+
 
 IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
     /*
@@ -105,6 +234,13 @@ IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
     dragPanClass: OpenLayers.Control.DragPan,
 
     pinchZoomEnabled: true,
+
+    /**
+     * if touchZoomClass is set, a touchZoom controller will
+     * be instantiated
+     */
+
+    touchZoomClass: IOL.Control.TouchZoom,
 
     /**
      * Constructor: OpenLayers.Control.Navigation
@@ -125,6 +261,9 @@ IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
      */
     activate: function() {
         this.dragPan.activate();
+        if(this.touchZoom != null){
+            this.touchZoom.activate()
+        }
 //         if (this.zoomWheelEnabled) {
 //             this.handlers.wheel.activate();
 //         }
@@ -153,46 +292,24 @@ IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
             this.map.div.oncontextmenu = function () { return false;};
         }
 
-//no click, just drag for now
-// map replace with Tap
-/*
-        var clickCallbacks = {
-            'dblclick': this.defaultDblClick,
-            'dblrightclick': this.defaultDblRightClick
-        };
-
-        var clickOptions = {
-            'double': true,
-            'stopDouble': true
-        };
-
-
-        this.handlers.click = new OpenLayers.Handler.Click(
-            this, clickCallbacks, clickOptions
-        );
-*/
-
         this.dragPan = new this.dragPanClass(
             OpenLayers.Util.extend({map: this.map}, this.dragPanOptions)
         );
 
-//for now, no zoombox
-//         this.zoomBox = new OpenLayers.Control.ZoomBox(
-//                     {map: this.map, keyMask: OpenLayers.Handler.MOD_SHIFT});
-//        this.zoomBox.draw();
-// for now no wheel
-//         this.handlers.wheel = new OpenLayers.Handler.MouseWheel(
-//                                     this, {"up"  : this.wheelUp,
-//                                            "down": this.wheelDown} );
-// but we will add PinchZoom
+        this.touchZoom = new IOL.Control.TouchZoom({map: this.map});
 
+        // remove zoomwheel
+
+/*
         if (this.pinchZoomEnabled){
             var inandout = {dilate:this.dilate, pinch:this.pinch};
             this.pinchZoom = new IOL.Handler.Pinch(this, inandout);
             this.pinchZoom.activate();
         }
+*/
 
         this.dragPan.draw();
+        this.touchZoom.draw();
         this.activate();
     },
 
@@ -248,10 +365,9 @@ IOL.Control.DragPan = OpenLayers.Class(OpenLayers.Control.DragPan, {
         OpenLayers.Control.prototype.initialize.apply(this, arguments);
     },
 
-    CLASS_NAME: "IOL.Control.DragPan",
+    CLASS_NAME: "IOL.Control.DragPan"
 
 });
-
 
 
 IOL.Handler.Drag = OpenLayers.Class(OpenLayers.Handler.Drag, {
@@ -312,37 +428,283 @@ IOL.Handler.Drag = OpenLayers.Class(OpenLayers.Handler.Drag, {
     CLASS_NAME: "IOL.Handler.Drag",
 });
 
+IOL.Handler.Feature=OpenLayers.Class(OpenLayers.Handler.Feature,{
+    CLASS_NAME: "IOL.Handler.Feature"
+    });
 
+IOL.Control.DragFeature=OpenLayers.Class(OpenLayers.Control.DragFeature, {
+    /**
+     * Constructor: OpenLayers.Control.DragFeature
+     * Create a new control to drag features.
+     *
+     * Parameters:
+     * layer - {<OpenLayers.Layer.Vector>} The layer containing features to be
+     *     dragged.
+     * options - {Object} Optional object whose properties will be set on the
+     *     control.
+     */
+    dragClass: IOL.Handler.Drag,
+    featureClass: IOL.Handler.Feature,
 
-IOL.add_events = function (){
-    var touch = IOL.touch_events;
-    for(var i=0; i<touch.length; i++){
-       OpenLayers.Events.prototype.BROWSER_EVENTS.push(touch[i]);
-       OpenLayers.Map.prototype.EVENT_TYPES.push(touch[i]);
-    }
-};
+    initialize: function(layer, options) {
+        OpenLayers.Control.prototype.initialize.apply(this, [options]);
+        this.layer = layer;
+        this.handlers = {
+            drag: new this.dragClass(
+                this, OpenLayers.Util.extend({
+                    down: this.downFeature,
+                    move: this.moveFeature,
+                    up: this.upFeature,
+                    out: this.cancel,
+                    done: this.doneDragging
+                }, this.dragCallbacks)
+            ),
+            feature: new this.featureClass(
+                this, this.layer, OpenLayers.Util.extend({
+                    over: this.overFeature,
+                    out: this.outFeature
+                }, this.featureCallbacks),
+                {geometryTypes: this.geometryTypes}
+            )
+        };
+    },
 
-IOL.decorate_gmp = function(){
-    var getMousePosition = OpenLayers.Events.prototype.getMousePosition;
-    OpenLayers.Events.prototype._old_getMousePosition = getMousePosition;
-    OpenLayers.Events.prototype.getMousePosition = function (evt){
-        if (IOL.touch_events.indexOf(evt.type) > -1){
-            if(evt.touches.length == 1){
-                evt.clientX = evt.touches[0].clientX;
-                evt.clientY = evt.touches[0].clientY;
-            }
+    CLASS_NAME: "IOL.Control.DragFeature"
+});
+
+/*
+ * Sketch handler
+ */
+
+IOL.Handler.Path = OpenLayers.Class(OpenLayers.Handler.Path, {
+    // rework these handlers
+
+    /**
+     * Method: mousedown
+     * Handle mouse down.  Add a new point to the geometry and
+     * render it. Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mousedown: function(evt) {
+        // ignore double-clicks
+        if (this.lastDown && this.lastDown.equals(evt.xy)) {
+            return false;
         }
-        return this._old_getMousePosition(evt);
-    };
-};
+        if(this.lastDown == null) {
+            if(this.persist) {
+                this.destroyFeature();
+            }
+            this.createFeature();
+        }
+        this.mouseDown = true;
+        this.lastDown = evt.xy;
+        var lonlat = this.control.map.getLonLatFromPixel(evt.xy);
+        this.point.geometry.x = lonlat.lon;
+        this.point.geometry.y = lonlat.lat;
+        this.point.geometry.clearBounds();
+        if((this.lastUp == null) || !this.lastUp.equals(evt.xy)) {
+            this.addPoint();
+        }
+        this.drawFeature();
+        this.drawing = true;
+        return false;
+    },
+
+    /**
+     * Method: mousemove
+     * Handle mouse move.  Adjust the geometry and redraw.
+     * Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mousemove: function (evt) {
+        if(this.drawing) {
+            var lonlat = this.map.getLonLatFromPixel(evt.xy);
+            this.point.geometry.x = lonlat.lon;
+            this.point.geometry.y = lonlat.lat;
+            this.point.geometry.clearBounds();
+            if(this.mouseDown && this.freehandMode(evt)) {
+                this.addPoint();
+            } else {
+                this.modifyFeature();
+            }
+            this.drawFeature();
+        }
+        return true;
+    },
+
+    /**
+     * Method: mouseup
+     * Handle mouse up.  Send the latest point in the geometry to
+     * the control. Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mouseup: function (evt) {
+        this.mouseDown = false;
+        if(this.drawing) {
+            if(this.freehandMode(evt)) {
+                if(this.persist) {
+                    this.destroyPoint();
+                }
+                this.finalize();
+            } else {
+                if(this.lastUp == null) {
+                   this.addPoint();
+                }
+                this.lastUp = evt.xy;
+            }
+            return false;
+        }
+        return true;
+    },
+
+    /**
+     * Method: dblclick
+     * Handle double-clicks.  Finish the geometry and send it back
+     * to the control.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    dblclick: function(evt) {
+        if(!this.freehandMode(evt)) {
+            var index = this.line.geometry.components.length - 1;
+            this.line.geometry.removeComponent(this.line.geometry.components[index]);
+            if(this.persist) {
+                this.destroyPoint();
+            }
+            this.finalize();
+        }
+        return false;
+    },
+
+    CLASS_NAME: "IOL.Handler.Path"
+});
+
+IOL.Handler.Polygon = OpenLayers.Class(OpenLayers.Handler.Polygon, {
+    /**
+     * Method: dblclick
+     * Handle double-clicks.  Finish the geometry and send it back
+     * to the control.
+     *
+     * Parameters:
+     * evt - {Event}
+     */
+    dblclick: function(evt) {
+        if(!this.freehandMode(evt)) {
+            // remove the penultimate point
+            var index = this.line.geometry.components.length - 2;
+            this.line.geometry.removeComponent(this.line.geometry.components[index]);
+            if(this.persist) {
+                this.destroyPoint();
+            }
+            this.finalize();
+        }
+        return false;
+    },
+
+    CLASS_NAME: "IOL.Handler.Polygon"
+});
+
+IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
+    /**
+     * Method: mousedown
+     * Handle mouse down.  Adjust the geometry and redraw.
+     * Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mousedown: function(evt) {
+        // check keyboard modifiers
+        if(!this.checkModifiers(evt)) {
+            return true;
+        }
+        // ignore double-clicks
+        if(this.lastDown && this.lastDown.equals(evt.xy)) {
+            return true;
+        }
+        if(this.lastDown == null) {
+            if(this.persist) {
+                this.destroyFeature();
+            }
+            this.createFeature();
+        }
+        this.lastDown = evt.xy;
+        this.drawing = true;
+        var lonlat = this.map.getLonLatFromPixel(evt.xy);
+        this.point.geometry.x = lonlat.lon;
+        this.point.geometry.y = lonlat.lat;
+        this.point.geometry.clearBounds();
+        this.drawFeature();
+        return false;
+    },
+
+    /**
+     * Method: mousemove
+     * Handle mouse move.  Adjust the geometry and redraw.
+     * Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mousemove: function (evt) {
+        if(this.drawing) {
+            var lonlat = this.map.getLonLatFromPixel(evt.xy);
+            this.point.geometry.x = lonlat.lon;
+            this.point.geometry.y = lonlat.lat;
+            this.point.geometry.clearBounds();
+            this.drawFeature();
+        }
+        return true;
+    },
+
+    /**
+     * Method: mouseup
+     * Handle mouse up.  Send the latest point in the geometry to the control.
+     * Return determines whether to propagate the event on the map.
+     *
+     * Parameters:
+     * evt - {Event} The browser event
+     *
+     * Returns:
+     * {Boolean} Allow event propagation
+     */
+    mouseup: function (evt) {
+        if(this.drawing) {
+            this.finalize();
+            return false;
+        } else {
+            return true;
+        }
+    },
+
+    CLASS_NAME: "IOL.Handler.Point"
+});
 
 
-// all monkeypatches needed to get OL ready for IOL
-
-
-IOL.setup = function(){
-    IOL.decorate_gmp();
-    IOL.add_events();
-};
 
 
