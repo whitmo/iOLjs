@@ -103,6 +103,9 @@ IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
     doubletap_timer:false,
     in_doubletap:false,
 
+    tap1:null,
+    tap2:null,
+
     touchstart: function(evt){
         evt.preventDefault();
         //var in_doubletap = false;
@@ -120,11 +123,15 @@ IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
 
             // start here
             if(!this.in_doubletap) {
+                this.tap1 = evt.xy;
                 this.in_doubletap = true;
             } else {
+                var center = this.center;
+                this.tap2 = evt.xy;
                 this.in_doubletap = false;
-                var args = [evt];
+                var args = [evt, this.tap2, this.tap1];
                 this.callback('doubletap', args);
+                this.center = null;
             }
         }
     },
@@ -147,17 +154,25 @@ IOL.Control.TouchZoom = OpenLayers.Class(OpenLayers.Control, {
 
     zoom:"out",
 
+    /*
+     * true: tapping only zooms in
+     * false: tapping alternates
+     */
+
+    tapZoomInOnly: true,
+
     // alter to just zoom in ala mobile google map
 
-    tapZoom: function(evt){
+    tapZoom: function(evt, center){
         var out = "out";
-        if (this.zoom == null || this.zoom == out){
+        if (this.zoom == null ||  this.tapZoomInOnly || this.zoom == out){
             this.map.zoomIn();
             this.zoom = "in";
             } else {
                 this.map.zoomOut();
             this.zoom = out;
         }
+        this.centerMap(center);
     },
 
     initialize: function(options) {
