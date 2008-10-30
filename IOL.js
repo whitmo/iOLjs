@@ -106,10 +106,22 @@ IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
     tap1:null,
     tap2:null,
 
+    /*
+     * we want to cancel the doubletap if the touchmoves
+     */
+
+    touchmove: function(evt){
+        if(this.in_doubletap == true){
+            this.in_doubletap = false;
+            this.doubletap_timer = false;
+            this.tap1 = null;
+            this.tap2 = null;
+        }
+    },
+
     touchstart: function(evt){
         evt.preventDefault();
-        //var in_doubletap = false;
-        //var doubletap_timer = false;
+
         var timeout = this.timeout;
         if(event.touches.length == 1) {
             if(!this.doubletap_timer){
@@ -170,9 +182,9 @@ IOL.Control.TouchZoom = OpenLayers.Class(OpenLayers.Control, {
             this.zoom = "in";
             } else {
                 this.map.zoomOut();
-            this.zoom = out;
-        }
-        this.centerMap(center);
+                this.zoom = out;
+            }
+            this.centerMap(center);
     },
 
     initialize: function(options) {
