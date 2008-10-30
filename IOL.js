@@ -98,6 +98,8 @@ IOL.Handler.Pinch = OpenLayers.Class(OpenLayers.Handler, {
 
 IOL.Handler.DoubleTap = OpenLayers.Class(OpenLayers.Handler, {
 
+    //add TapGrab functionality??
+
     timeout: 500,
 
     doubletap_timer:false,
