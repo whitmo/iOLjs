@@ -454,7 +454,67 @@ IOL.Handler.Drag = OpenLayers.Class(OpenLayers.Handler.Drag, {
         return true;
     },
 
-    CLASS_NAME: "IOL.Handler.Drag",
+    CLASS_NAME: "IOL.Handler.Drag"
+});
+
+IOL.Control.Panel=OpenLayers.Class(OpenLayers.Control.Panel,{
+    ignore: "touchstart",
+
+    /**
+     * Method: onClick
+     */
+    onClick: function (ctrl, evt) {
+        OpenLayers.Event.stop(evt ? evt : window.event);
+        this.activateControl(ctrl);
+    },
+
+    /**
+     * APIMethod: addControls
+     * To build a toolbar, you add a set of controls to it. addControls
+     * lets you add a single control or a list of controls to the
+     * Control Panel.
+     *
+     * Parameters:
+     * controls - {<OpenLayers.Control>}
+     */
+    addControls: function(controls) {
+        if (!(controls instanceof Array)) {
+            controls = [controls];
+        }
+        this.controls = this.controls.concat(controls);
+
+        // Give each control a panel_div which will be used later.
+        // Access to this div is via the panel_div attribute of the
+        // control added to the panel.
+        // Also, stop mousedowns and clicks, but don't stop mouseup,
+        // since they need to pass through.
+        for (var i=0, len=controls.length; i<len; i++) {
+            var element = document.createElement("div");
+            var textNode = document.createTextNode(" ");
+            controls[i].panel_div = element;
+            if (controls[i].title != "") {
+                controls[i].panel_div.title = controls[i].title;
+            }
+            OpenLayers.Event.observe(controls[i].panel_div, "click",
+                OpenLayers.Function.bind(this.onClick, this, controls[i]));
+            OpenLayers.Event.observe(controls[i].panel_div, this.ignore,
+                OpenLayers.Function.bindAsEventListener(OpenLayers.Event.stop));
+        }
+
+        if (this.map) { // map.addControl() has already been called on the panel
+            for (var i=0, len=controls.length; i<len; i++) {
+                this.map.addControl(controls[i]);
+                controls[i].deactivate();
+                controls[i].events.on({
+                    "activate": this.redraw,
+                    "deactivate": this.redraw,
+                    scope: this
+                });
+            }
+            this.redraw();
+        }
+    },
+    CLASS_NAME: "IOL.Control.Panel"
 });
 
 IOL.Handler.Feature=OpenLayers.Class(OpenLayers.Handler.Feature,{
@@ -500,6 +560,8 @@ IOL.Control.DragFeature=OpenLayers.Class(OpenLayers.Control.DragFeature, {
 
     CLASS_NAME: "IOL.Control.DragFeature"
 });
+
+// no need to override Drawfeature
 
 /*
  * Sketch handler
@@ -653,8 +715,10 @@ IOL.Handler.Polygon = OpenLayers.Class(OpenLayers.Handler.Polygon, {
 });
 
 IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
+    // consider aurole
+
     /**
-     * Method: mousedown
+     * Method: (analog: mousedown)
      * Handle mouse down.  Adjust the geometry and redraw.
      * Return determines whether to propagate the event on the map.
      *
@@ -664,12 +728,7 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
      * Returns:
      * {Boolean} Allow event propagation
      */
-    mousedown: function(evt) {
-        // check keyboard modifiers
-        if(!this.checkModifiers(evt)) {
-            return true;
-        }
-        // ignore double-clicks
+    touchstart: function(evt) {
         if(this.lastDown && this.lastDown.equals(evt.xy)) {
             return true;
         }
@@ -690,7 +749,7 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
     },
 
     /**
-     * Method: mousemove
+     * Method: touchmove (analog:mousemove)
      * Handle mouse move.  Adjust the geometry and redraw.
      * Return determines whether to propagate the event on the map.
      *
@@ -700,7 +759,7 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
      * Returns:
      * {Boolean} Allow event propagation
      */
-    mousemove: function (evt) {
+    touchmove: function (evt) {
         if(this.drawing) {
             var lonlat = this.map.getLonLatFromPixel(evt.xy);
             this.point.geometry.x = lonlat.lon;
@@ -712,7 +771,7 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
     },
 
     /**
-     * Method: mouseup
+     * Method: touchend (analog:mouseup)
      * Handle mouse up.  Send the latest point in the geometry to the control.
      * Return determines whether to propagate the event on the map.
      *
@@ -722,7 +781,7 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
      * Returns:
      * {Boolean} Allow event propagation
      */
-    mouseup: function (evt) {
+    touchend: function (evt) {
         if(this.drawing) {
             this.finalize();
             return false;
