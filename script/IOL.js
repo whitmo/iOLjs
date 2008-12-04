@@ -185,216 +185,113 @@ IOL.Control.Panel=OpenLayers.Class(OpenLayers.Control.Panel,{
     CLASS_NAME: "IOL.Control.Panel"
 });
 /* ======================================================================
-    IOL/Control/Navigation.js
+    IOL/Handler/Drag.js
    ====================================================================== */
 
 /**
  * @requires IOL.js
  */
 
-IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
-    /*
-     * There may be quite a few things that the INav doesn't need to inherit
-     * but for now, we'll only override the bits we need to
-     * */
+IOL.Handler.Drag = OpenLayers.Class(OpenLayers.Handler.Drag, {
 
-    dragPanClass: OpenLayers.Control.DragPan,
-
-    pinchZoomEnabled: true,
-
-    /**
-     * if touchZoomClass is set, a touchZoom controller will
-     * be instantiated
-     */
-
-    touchZoomClass: IOL.Control.TouchZoom,
-
-    /**
-     * Constructor: OpenLayers.Control.Navigation
-     * Create a new navigation control
-     *
-     * Parameters:
-     * options - {Object} An optional object whose properties will be set on
-     *                    the control
-     */
-    initialize: function(options) {
-        // Add ability to pass in dragpan class
-        this.handlers = {};
-        OpenLayers.Control.prototype.initialize.apply(this, arguments);
-    },
-
-    /**
-     * Method: activate
-     */
-    activate: function() {
-        this.dragPan.activate();
-        if(this.touchZoom != null){
-            this.touchZoom.activate();
-        }
-        this.tap_handler = new IOL.Handler.Tap(this, {doubletap:this._dblclick,
-                                                      singletap: this._singleclick});
-        this.tap_handler.activate();
-        return OpenLayers.Control.prototype.activate.apply(this,arguments);
-    },
-
-    _dblclick: function(evt){
-        var touch = evt.touches[0];
+    touchstart: function (evt) {
+        this.dragging = false;
+        this.started = true;
+        this.start = evt.xy;
+        this.last = evt.xy;
+        // TBD replace with CSS classes
+        this.map.div.style.cursor = "move";
+        this.down(evt);
+        this.callback("down", [evt.xy]);
         OpenLayers.Event.stop(evt);
-        IOL.fireMouseEvent("dblclick", this.map.div, touch);
-    },
 
-    _singleclick: function(evt){
-        OpenLayers.Event.stop(evt);
-        var touch = evt.touches[0];
-        IOL.fireMouseEvent("click", this.map.div, touch);
-    },
-
-    /**
-     * Method: deactivate
-     */
-    deactivate: function() {
-        //this.zoomBox.deactivate();
-        this.dragPan.deactivate();
-        this.tap_handler.deactivate();
-        //this.handlers.click.deactivate();
-        //this.handlers.wheel.deactivate();
-        return OpenLayers.Control.prototype.deactivate.apply(this,arguments);
-    },
-
-    /**
-     * Method: draw
-     */
-    draw: function() {
-        // disable right mouse context menu for support of right click events
-        if (this.handleRightClicks) {
-            this.map.div.oncontextmenu = function () { return false;};
+        if(!this.oldOnselectstart) {
+            this.oldOnselectstart = (document.onselectstart) ? document.onselectstart : function() { return true; };
+            document.onselectstart = function() {return false;};
         }
+        return !this.stopDown;
+    },
 
-        this.dragPan = new this.dragPanClass(
-            OpenLayers.Util.extend({map: this.map}, this.dragPanOptions)
-        );
-
-        this.touchZoom = new IOL.Control.TouchZoom({map: this.map});
-
-        // remove zoomwheel
-
-/*
-        if (this.pinchZoomEnabled){
-            var inandout = {dilate:this.dilate, pinch:this.pinch};
-            this.pinchZoom = new IOL.Handler.Pinch(this, inandout);
-            this.pinchZoom.activate();
+    touchmove: function (evt) {
+        if (this.started && !this.timeoutId && (evt.xy.x != this.last.x || evt.xy.y != this.last.y)) {
+            if (this.interval > 0) {
+                this.timeoutId = setTimeout(OpenLayers.Function.bind(this.removeTimeout, this), this.interval);
+            }
+            this.dragging = true;
+            this.move(evt);
+            this.callback("move", [evt.xy]);
+            if(!this.oldOnselectstart) {
+                this.oldOnselectstart = document.onselectstart;
+                document.onselectstart = function() {return false;};
+            }
+            this.last = this.evt.xy;
+            OpenLayers.Event.stop(evt);
         }
-*/
-
-
-        this.dragPan.draw();
-        this.touchZoom.draw();
-        this.activate();
+        return true;
     },
 
-    dilate:function (evt){
-	this.map.zoomIn();
-    },
-
-    pinch:function (evt){
-	if (this.limitZoomOut() == false) {
-	    this.map.zoomOut();
-	}
-    },
-
-    limitZoomOut: function(){
-        // from whatamap, not sure of function
-        if ( this.map.getZoom() <= 2 ) {
-            return true;
+    touchend: function (evt) {
+        if (this.started) {
+            var dragged = (this.start != this.last);
+            this.started = false;
+            this.dragging = false;
+            // TBD replace with CSS classes
+            this.map.div.style.cursor = "";
+            this.up(evt);
+            this.callback("up", [evt.xy]);
+            if(dragged) {
+                this.callback("done", [evt.xy]);
+            }
+            document.onselectstart = this.oldOnselectstart;
         }
-        return false;
+        return true;
     },
 
-    CLASS_NAME: "IOL.Control.Navigation"
+    CLASS_NAME: "IOL.Handler.Drag"
 });
 
 /* ======================================================================
-    IOL/Handler/Tap.js
+    IOL/Control/DragPan.js
    ====================================================================== */
 
 /**
  * @requires IOL.js
+ * @requires IOL/Handler/Drag.js
  */
 
-IOL.Handler.Tap = OpenLayers.Class(OpenLayers.Handler, {
-    singletap_timer: false,
-    singletap_timeout: 310,
-    doubletap_timeout: 300,
-    doubletap_timer:false,
-    in_doubletap:false,
-    in_singletap: false,
-    fire_single: false,
+IOL.Control.DragPan = OpenLayers.Class(OpenLayers.Control.DragPan, {
+    /**
+     * Property: interval
+     * {Integer} The number of milliseconds that should ellapse before
+     *     panning the map again. Set this to increase dragging performance.
+     *     Defaults to 25 milliseconds.
+     */
 
-    touchstart: function(evt){
-        var timeout = this.doubletap_timeout;
-        if(!this.singletap_timer && !this.doubletap_timer){
-            var obj = this;
-            function reset(){
-                obj.in_singletap = false;
-                obj.singletap_timer = false;
-                obj.fire_single = true;
+    // placeholder for custom drag handler
+
+    handlerClass: IOL.Handler.Drag,
+
+    /**
+     * Method: draw
+     * Creates a Drag handler, using <panMap> and
+     * <panMapDone> as callbacks.
+     */
+    draw: function() {
+        this.handler = new this.handlerClass(this, {
+                "move": this.panMap,
+                "done": this.panMapDone
+            }, {
+                interval: this.interval
             }
-            this.singletap_timer = setTimeout(reset, this.singletap_timeout);
-        }
-        if(event.touches.length == 1) {
-            if(!this.doubletap_timer){
-                var obj = this;
-                function reset(){
-                    obj.in_doubletap = false;
-                    obj.doubletap_timer = false;
-                    obj.in_singletap = false;
-                    obj.singletap_timer = false;
-                }
-                this.doubletap_timer = setTimeout(reset, this.doubletap_timeout);
-            }
-        }
+        );
     },
 
-    touchmove: function(evt){
-        this.clear_flags();
+    initialize: function(options) {
+        OpenLayers.Control.DragPan.prototype.initialize.apply(this, arguments);
     },
 
-    clear_flags: function(evt){
-        // cancel out
-        this.in_doubletap = false;
-        this.doubletap_timer = false;
-        this.in_singletap = false;
-        this.singletap_timer = false;
-        this.fire_single = false;
-        this.center = null;
-    },
+    CLASS_NAME: "IOL.Control.DragPan"
 
-    touchend:function(evt){
-        var obj = this;
-        if(evt.touches.length == 1){
-            if(!this.in_doubletap ) {
-                this.tap1 = evt.xy;
-                this.in_doubletap = true;
-                var args = [evt, this.tap1];
-                function fire(){
-                    if (this.fire_single){
-                        obj.callback('singletap', args);
-                        this.clear_flags();
-                    }
-                };
-                setTimeout(300, fire);
-            } else {
-                var center = this.center;
-                this.tap2 = evt.xy;
-                this.clear_flags();
-                var args = [evt, this.tap2, this.tap1];
-                this.callback('doubletap', args);
-                this.center = null;
-            }
-        }
-    },
-
-    CLASS_NAME: "IOL.Handler.Tap"
 });
 
 /* ======================================================================
@@ -634,6 +531,227 @@ IOL.Control.TouchZoom = OpenLayers.Class(OpenLayers.Control, {
 });
 
 /* ======================================================================
+    IOL/Control/Navigation.js
+   ====================================================================== */
+
+/**
+ * @requires IOL.js
+ * @requires IOL/Control/DragPan.js
+ * @requires IOL/Control/TouchZoom.js
+ */
+
+IOL.Control.Navigation = OpenLayers.Class(OpenLayers.Control.Navigation, {
+    /*
+     * There may be quite a few things that the INav doesn't need to inherit
+     * but for now, we'll only override the bits we need to
+     */
+
+    /**
+     * APIProperty: zoomWheelEnabled
+     * {Boolean} Whether the mousewheel should zoom the map
+     */
+    zoomWheelEnabled: false, 
+
+    dragPanClass: IOL.Control.DragPan,
+
+    pinchZoomEnabled: true,
+
+    /**
+     * if touchZoomClass is set, a touchZoom controller will
+     * be instantiated
+     */
+
+    touchZoomClass: IOL.Control.TouchZoom,
+
+    /**
+     * Constructor: OpenLayers.Control.Navigation
+     * Create a new navigation control
+     *
+     * Parameters:
+     * options - {Object} An optional object whose properties will be set on
+     *                    the control
+     */
+    initialize: function(options) {
+        // Add ability to pass in dragpan class
+        this.handlers = {};
+        OpenLayers.Control.prototype.initialize.apply(this, arguments);
+    },
+
+    /**
+     * Method: activate
+     */
+    activate: function() {
+        this.dragPan.activate();
+        if(this.touchZoom != null){
+            this.touchZoom.activate();
+        }
+        this.tap_handler = new IOL.Handler.Tap(this, {doubletap:this._dblclick,
+                                                      singletap: this._singleclick});
+        this.tap_handler.activate();
+        return OpenLayers.Control.prototype.activate.apply(this,arguments);
+    },
+
+    _dblclick: function(evt){
+        var touch = evt.touches[0];
+        OpenLayers.Event.stop(evt);
+        IOL.fireMouseEvent("dblclick", this.map.div, touch);
+    },
+
+    _singleclick: function(evt){
+        OpenLayers.Event.stop(evt);
+        var touch = evt.touches[0];
+        IOL.fireMouseEvent("click", this.map.div, touch);
+    },
+
+    /**
+     * Method: deactivate
+     */
+    deactivate: function() {
+        //this.zoomBox.deactivate();
+        this.dragPan.deactivate();
+        this.tap_handler.deactivate();
+        //this.handlers.click.deactivate();
+        //this.handlers.wheel.deactivate();
+        return OpenLayers.Control.prototype.deactivate.apply(this,arguments);
+    },
+
+    /**
+     * Method: draw
+     */
+    draw: function() {
+        // disable right mouse context menu for support of right click events
+        if (this.handleRightClicks) {
+            this.map.div.oncontextmenu = function () { return false;};
+        }
+
+        this.dragPan = new this.dragPanClass(
+            OpenLayers.Util.extend({map: this.map}, this.dragPanOptions)
+        );
+
+        this.touchZoom = new IOL.Control.TouchZoom({map: this.map});
+
+        // remove zoomwheel
+
+/*
+        if (this.pinchZoomEnabled){
+            var inandout = {dilate:this.dilate, pinch:this.pinch};
+            this.pinchZoom = new IOL.Handler.Pinch(this, inandout);
+            this.pinchZoom.activate();
+        }
+*/
+
+
+        this.dragPan.draw();
+        this.touchZoom.draw();
+        this.activate();
+    },
+
+    dilate:function (evt){
+	this.map.zoomIn();
+    },
+
+    pinch:function (evt){
+	if (this.limitZoomOut() == false) {
+	    this.map.zoomOut();
+	}
+    },
+
+    limitZoomOut: function(){
+        // from whatamap, not sure of function
+        if ( this.map.getZoom() <= 2 ) {
+            return true;
+        }
+        return false;
+    },
+
+    CLASS_NAME: "IOL.Control.Navigation"
+});
+
+/* ======================================================================
+    IOL/Handler/Tap.js
+   ====================================================================== */
+
+/**
+ * @requires IOL.js
+ */
+
+IOL.Handler.Tap = OpenLayers.Class(OpenLayers.Handler, {
+    singletap_timer: false,
+    singletap_timeout: 310,
+    doubletap_timeout: 300,
+    doubletap_timer:false,
+    in_doubletap:false,
+    in_singletap: false,
+    fire_single: false,
+
+    touchstart: function(evt){
+        var timeout = this.doubletap_timeout;
+        if(!this.singletap_timer && !this.doubletap_timer){
+            var obj = this;
+            function reset(){
+                obj.in_singletap = false;
+                obj.singletap_timer = false;
+                obj.fire_single = true;
+            }
+            this.singletap_timer = setTimeout(reset, this.singletap_timeout);
+        }
+        if(event.touches.length == 1) {
+            if(!this.doubletap_timer){
+                var obj = this;
+                function reset(){
+                    obj.in_doubletap = false;
+                    obj.doubletap_timer = false;
+                    obj.in_singletap = false;
+                    obj.singletap_timer = false;
+                }
+                this.doubletap_timer = setTimeout(reset, this.doubletap_timeout);
+            }
+        }
+    },
+
+    touchmove: function(evt){
+        this.clear_flags();
+    },
+
+    clear_flags: function(evt){
+        // cancel out
+        this.in_doubletap = false;
+        this.doubletap_timer = false;
+        this.in_singletap = false;
+        this.singletap_timer = false;
+        this.fire_single = false;
+        this.center = null;
+    },
+
+    touchend:function(evt){
+        var obj = this;
+        if(evt.touches.length == 1){
+            if(!this.in_doubletap ) {
+                this.tap1 = evt.xy;
+                this.in_doubletap = true;
+                var args = [evt, this.tap1];
+                function fire(){
+                    if (this.fire_single){
+                        obj.callback('singletap', args);
+                        this.clear_flags();
+                    }
+                };
+                setTimeout(300, fire);
+            } else {
+                var center = this.center;
+                this.tap2 = evt.xy;
+                this.clear_flags();
+                var args = [evt, this.tap2, this.tap1];
+                this.callback('doubletap', args);
+                this.center = null;
+            }
+        }
+    },
+
+    CLASS_NAME: "IOL.Handler.Tap"
+});
+
+/* ======================================================================
     IOL/Handler/Feature.js
    ====================================================================== */
 
@@ -867,72 +985,6 @@ IOL.Handler.Point = OpenLayers.Class(OpenLayers.Handler.Point, {
     CLASS_NAME: "IOL.Handler.Point"
 });
 /* ======================================================================
-    IOL/Handler/Drag.js
-   ====================================================================== */
-
-/**
- * @requires IOL.js
- */
-
-IOL.Handler.Drag = OpenLayers.Class(OpenLayers.Handler.Drag, {
-
-    touchstart: function (evt) {
-        this.dragging = false;
-        this.started = true;
-        this.start = evt.xy;
-        this.last = evt.xy;
-        // TBD replace with CSS classes
-        this.map.div.style.cursor = "move";
-        this.down(evt);
-        this.callback("down", [evt.xy]);
-        OpenLayers.Event.stop(evt);
-
-        if(!this.oldOnselectstart) {
-            this.oldOnselectstart = (document.onselectstart) ? document.onselectstart : function() { return true; };
-            document.onselectstart = function() {return false;};
-        }
-        return !this.stopDown;
-    },
-
-    touchmove: function (evt) {
-        if (this.started && !this.timeoutId && (evt.xy.x != this.last.x || evt.xy.y != this.last.y)) {
-            if (this.interval > 0) {
-                this.timeoutId = setTimeout(OpenLayers.Function.bind(this.removeTimeout, this), this.interval);
-            }
-            this.dragging = true;
-            this.move(evt);
-            this.callback("move", [evt.xy]);
-            if(!this.oldOnselectstart) {
-                this.oldOnselectstart = document.onselectstart;
-                document.onselectstart = function() {return false;};
-            }
-            this.last = this.evt.xy;
-            OpenLayers.Event.stop(evt);
-        }
-        return true;
-    },
-
-    touchend: function (evt) {
-        if (this.started) {
-            var dragged = (this.start != this.last);
-            this.started = false;
-            this.dragging = false;
-            // TBD replace with CSS classes
-            this.map.div.style.cursor = "";
-            this.up(evt);
-            this.callback("up", [evt.xy]);
-            if(dragged) {
-                this.callback("done", [evt.xy]);
-            }
-            document.onselectstart = this.oldOnselectstart;
-        }
-        return true;
-    },
-
-    CLASS_NAME: "IOL.Handler.Drag"
-});
-
-/* ======================================================================
     IOL/Handler/Path.js
    ====================================================================== */
 
@@ -1063,48 +1115,20 @@ IOL.Handler.Path = OpenLayers.Class(OpenLayers.Handler.Path, {
 });
 
 /* ======================================================================
-    IOL/Control/DragPan.js
+    loader.js
    ====================================================================== */
 
-/**
- * @requires IOL.js
- */
-
-IOL.Control.DragPan = OpenLayers.Class(OpenLayers.Control.DragPan, {
-    /**
-     * Property: interval
-     * {Integer} The number of milliseconds that should ellapse before
-     *     panning the map again. Set this to increase dragging performance.
-     *     Defaults to 25 milliseconds.
-     */
-
-    // placeholder for custom drag handler
-
-    handlerClass: OpenLayers.Handler.Drag,
-
-    /**
-     * Method: draw
-     * Creates a Drag handler, using <panMap> and
-     * <panMapDone> as callbacks.
-     */
-    draw: function() {
-        this.handler = new this.handlerClass(this, {
-                "move": this.panMap,
-                "done": this.panMapDone
-            }, {
-                interval: this.interval
-            }
-        );
-    },
-
-    initialize: function(options) {
-        OpenLayers.Control.prototype.initialize.apply(this, arguments);
-    },
-
-    CLASS_NAME: "IOL.Control.DragPan"
-
-});
-
+        var files = [
+            "OpenLayers/Util.js",
+            "OpenLayers/BaseTypes.js",
+            "OpenLayers/BaseTypes/Class.js",
+            "OpenLayers/BaseTypes/Bounds.js",
+            "OpenLayers/BaseTypes/Element.js",
+            "OpenLayers/BaseTypes/LonLat.js",
+            "OpenLayers/BaseTypes/Pixel.js",
+            "OpenLayers/BaseTypes/Size.js",
+            "OpenLayers/Console.js"
+	];
 /* ======================================================================
     IOL/Handler/Polygon.js
    ====================================================================== */

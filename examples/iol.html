@@ -17,30 +17,27 @@
         OpenLayers.Console.log = xlog.log;
     </script>
     <script src="../script/iol.js"></script>
+<style type="text/css" media="screen">@import "../iui/iui/iui.css";</style>
+<script type="application/x-javascript" src="../iui/iui/iui.js"></script>
     <script type="text/javascript">
             var map;
-            var position = new OpenLayers.Pixel(600, 6)
-            touch_nav_options = {
-               zoomWheelEnabled: false,
-               dragPanClass: IOL.Control.DragPan,
-               dragPanOptions: {
-                   handlerClass:IOL.Handler.Drag,
-                   interval:25
-               }
-            };
 
             function init() {
                 map = new OpenLayers.Map('map', {
                     controls: [
-                        //new OpenLayers.Control.ScaleLine(),
-                        //new OpenLayers.Control.MousePosition(),
-                        //new OpenLayers.Control.Navigation(),
-                        new IOL.Control.Navigation(touch_nav_options)
+                        new IOL.Control.Navigation({
+                            zoomWheelEnabled: false,
+                            dragPanClass: IOL.Control.DragPan,
+                            dragPanOptions: {
+                                handlerClass:IOL.Handler.Drag,
+                                interval:25
+                            }   
+                        })
                     ],
                     numZoomLevels: 7
                 });
                 
-                var ol_wms = new OpenLayers.Layer.WMS(
+                var wms = new OpenLayers.Layer.WMS(
                     "topp:bluemarble - Tiled", "http://demo.opengeo.org:80/geoserver/wms",
                     {
                         srs: 'EPSG:4326',
@@ -51,17 +48,14 @@
                     }
                 );
 
-                map.addLayers([ol_wms]);
-                map.zoomToMaxExtent();
+                map.addLayers([wms]);
 
                 // set map to something to look at
-                var p = new OpenLayers.LonLat(-80, 33); 
-                map.panTo(p); map.zoomTo(3); 
-                map.setCenter(p);
+                map.setCenter(new OpenLayers.LonLat(-80, 33), 3);
             };
         </script>
 </head>
-<body onload="init();">
+<body>
   <div id="content">
     <div id="map">
     </div>
