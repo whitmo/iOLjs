@@ -8,56 +8,69 @@
 <style type="text/css" media="screen">@import "../externals/iui/iui/iui.css";</style>
 <style>
     #map {
-        height: 300px;
-        z-index: 1;        
+        height: 100%;
+        z-index: 1;
+        padding: 0px !important;
     }
 </style>
 <script type="application/x-javascript" src="../script/OpenLayers.js"></script>
-<script type="application/x-javascript" src="../script/xlog.js">
-    var url = "http://localhost/cgi-bin/xlog.cgi";
-    OpenLayers.Console.log = xlog.log;
-</script>
+<!--<script type="application/x-javascript" src="../externals/openlayers/lib/OpenLayers.js"></script>-->
+<!--<script type="application/x-javascript" src="../lib/loader.js"></script>-->
+<!--<script type="application/x-javascript" src="../script/xlog.js">-->
+<!--    var url = "http://localhost/cgi-bin/xlog.cgi";-->
+<!--    OpenLayers.Console.log = xlog.log;-->
+<!--</script>-->
 <script type="application/x-javascript" src="../script/iol.js"></script>
 <script type="application/x-javascript" src="../externals/iui/iui/iui.js"></script>
 <script type="application/x-javascript">
 
-    function activatePoint(event) {
-        drawPoint.activate();
-        xlog.log("point " + drawPoint.active);
-    }
-    function activateLine(event) {
-        xlog.log("line " + event.target.checked);
-    }
-    function activatePolygon(event) {
-        xlog.log("polygon " + event.target.checked);
-    }
-    function activateNavigation(event) {
-        drawPoint.deactivate();
-        xlog.log("navigate " + event.target.checked);
+    function register(key) {
+        $(key).addEventListener("change", function() {
+            activate(key);
+        }, false);
     }
     
-    var map, vectors, drawPoint;
+    function activate(key) {
+        for(var k in tools) {
+            if(k == key) {
+                tools[k].activate();
+            } else {
+                tools[k].deactivate();
+            }
+        }
+    }
+    
+    var map, vectors, tools;
     function init() {
         
-        $("point").addEventListener("change", activatePoint, false);
-        $("line").addEventListener("change", activateLine, false);
-        $("polygon").addEventListener("change", activatePolygon, false);
-        $("navigate").addEventListener("change", activateNavigation, false);
+        register("point");
+        register("line");
+        register("polygon");
+        register("navigate");
         
         vectors = new OpenLayers.Layer.Vector("Vectors");
-        drawPoint = new OpenLayers.Control.DrawFeature(vectors, {
-            handler: IOL.Handler.Point
-        });
+        
+        tools = {
+            point: new OpenLayers.Control.DrawFeature(
+                vectors, IOL.Handler.Point
+            ),
+            line: new OpenLayers.Control.DrawFeature(
+                vectors, IOL.Handler.Path
+            ),
+            polygon: new OpenLayers.Control.DrawFeature(
+                vectors, IOL.Handler.Polygon
+            )
+        };
 
         map = new OpenLayers.Map('map', {
             controls: [
-                new IOL.Control.Navigation(), drawPoint
+                new IOL.Control.Navigation(), tools.point, tools.line, tools.polygon
             ],
             numZoomLevels: 7
         });
         
         var wms = new OpenLayers.Layer.WMS(
-            "Imagery", "http://demo.opengeo.org:80/geoserver/wms",
+            "Imagery", "http://demo.opengeo.org/geoserver/wms",
             {
                 srs: 'EPSG:4326',
                 layers: 'topp:bluemarble',
@@ -67,7 +80,7 @@
             }
         );
 
-        map.addLayers([wms, vector]);
+        map.addLayers([wms, vectors]);
 
         map.setCenter(new OpenLayers.LonLat(-80, 33), 3);
     }
@@ -80,14 +93,14 @@
     <div class="toolbar">
         <h1 id="pageTitle"></h1>
         <a id="backButton" class="button" href="#"></a>
-        <a class="button" href="#controlPanel">Settings</a>
+        <a class="button" href="#controlPanel">Tools</a>
     </div>
     <div id="map" title="Map" class="panel" selected="true">
     </div>
 
     <form id="controlPanel" class="dialog">
         <fieldset>
-            <h1>Settings</h1>
+            <h1>Tools</h1>
             <a class="button blueButton" type="cancel">Done</a>
             <div class="row"></div>
             <div class="row">
